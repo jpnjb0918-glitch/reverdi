@@ -30,6 +30,7 @@ spec:
             {{- include "reverdi.labels" . | nindent 12 }}
             app.kubernetes.io/component: aggregate
         spec:
+          # 🔴 IRSA — 배치는 웹과 다른 역할을 쓴다 (크롤러는 S3 쓰기만)
           {{- if .Values.batchServiceAccountName }}
           serviceAccountName: {{ .Values.batchServiceAccountName }}
           {{- end }}

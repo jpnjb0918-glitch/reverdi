@@ -450,11 +450,13 @@ migrate:
       memory: 512Mi
 
 # ---------------------------------------------------------------------------
-# 🔴 IRSA (AWS 전용)
+# 🔴 IRSA — 파드별 IAM 역할 (AWS 전용)
 #
-#   비우면 default ServiceAccount → 노드 IAM 역할로 AWS 에 붙는다.
-#   로컬(Vagrant)에는 IRSA 가 없으므로 비워둔다.
-#   AWS 에서는 eksctl 이 만든 SA 이름을 넣는다 (values-aws.yaml).
+#   비우면 default ServiceAccount 를 쓰고, 파드가 "노드"의 IAM 역할로 AWS 에 붙는다.
+#   그러면 웹·크롤러가 같은 권한을 갖게 되고, S3 정책이 파드 단위로 안 걸린다.
+#
+#   로컬(Vagrant)에는 IRSA 라는 개념이 없으므로 비워둔다.
+#   AWS 에서는 eksctl(aws/cluster.yaml)이 만든 SA 이름을 넣는다.
 # ---------------------------------------------------------------------------
 serviceAccountName: ""
 batchServiceAccountName: ""

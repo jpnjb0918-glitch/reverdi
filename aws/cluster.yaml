@@ -58,9 +58,9 @@ managedNodeGroups:
       workload: web
     # taint 는 걸지 않는다 — 웹은 기본 워크로드다
     #
-    # 🔴 availabilityZones 를 박지 않는다.
-    #    eksctl 이 VPC 를 만들 때 AZ 를 스스로 고른다(서울은 a·b·c·d 중 3개).
-    #    노드그룹에만 AZ 를 박으면 VPC 가 고른 것과 어긋나 실패한다:
+    # 🔴 availabilityZones 를 박지 않는다 (2026-09-06 실패 → 수정)
+    #    eksctl 이 VPC 를 만들 때 AZ 를 스스로 고른다. 서울은 a·b·c·d 중 3개인데
+    #    이번엔 b·c·d 를 골랐다. 노드그룹에만 a 를 박아뒀더니 실패했다:
     #      "could not find private subnets for zones [ap-northeast-2a]"
     #    비워두면 관리형 노드그룹의 ASG 가 사설 서브넷 전체에 알아서 분산한다.
     #    3대를 요청했으므로 AZ 당 하나씩 뜬다 → topologySpread 가 의미를 갖는다.

@@ -11,13 +11,13 @@
 # 이미지 — ECR
 # ---------------------------------------------------------------------------
 image:
-  repository: 611669940814.dkr.ecr.ap-northeast-2.amazonaws.com/reverdi-backend
+  repository: <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/reverdi-backend
   # ↓ Jenkins 가 커밋 해시 7자리로 갱신한다
   tag: "latest"
   pullPolicy: IfNotPresent
 
 crawlerImage:
-  repository: 611669940814.dkr.ecr.ap-northeast-2.amazonaws.com/reverdi-crawler
+  repository: <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/reverdi-crawler
 
 # ---------------------------------------------------------------------------
 # 외부 접근 — ALB
@@ -31,7 +31,7 @@ ingress:
   enabled: true
   className: alb
   host: ""            # 도메인이 정해지면 채운다. 비우면 ALB DNS 로 접속
-  certificateArn: ""    # 도메인 생기면 ACM ARN 을 넣는다
+  certificateArn: "arn:aws:acm:ap-northeast-2:<AWS_ACCOUNT_ID>:certificate/<CERT_ID>"
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     # 파드 IP 로 직접 분산. VPC CNI 라 가능하다.
@@ -39,8 +39,8 @@ ingress:
     # 🔴 /ready 가 아니다. /ready 는 DB 를 확인하므로
     #    DB 장애 시 파드 3개가 동시에 대상그룹에서 빠진다.
     alb.ingress.kubernetes.io/healthcheck-path: /health
-    # 🔴 인증서가 없으면 HTTP 만 연다.
-    #    certificateArn 이 비었는데 HTTPS 443 을 요청하면 ALB 생성이 실패한다:
+    # 🔴 인증서가 없으면 HTTP 만 연다 (2026-09-06 실패 → 수정)
+    #    certificateArn 을 비웠는데 HTTPS 443 이 남아 있어 ALB 생성이 계속 실패했다:
     #      "A certificate must be specified for HTTPS listeners"
     #
     #    도메인이 생기면 세 가지를 같이 바꾼다:
@@ -106,7 +106,7 @@ config:
 
   # 🔴 S3 를 강제한다. 로컬 디스크 모드는 파드가 죽으면 업로드가 사라진다.
   ALLOW_LOCAL_STORAGE: "false"
-  S3_BUCKET: "reverdi-uploads-611669940814"
+  S3_BUCKET: "<S3_BUCKET_NAME>"
   AWS_REGION: "ap-northeast-2"
   # CloudFront 를 붙이면 그 도메인. 비우면 버킷 주소로 만든다.
   S3_PUBLIC_BASE: ""
@@ -144,7 +144,13 @@ aggregate:
 pgdump:
   enabled: false    # S3 업로드가 들어온 뒤 true
 
-# 🔴 IRSA — cluster.yaml 이 만든 ServiceAccount
-#    이게 없으면 노드 역할로 붙어 S3 가 AccessDenied 가 난다.
+# ---------------------------------------------------------------------------
+# 🔴 IRSA — aws/cluster.yaml 의 iam.serviceAccounts 가 만든 것
+#
+#   웹    S3 읽기/쓰기/삭제
+#   배치  S3 쓰기만 (크롤러가 뚫려도 삭제는 못 한다)
+#
+#   이게 없으면 노드 역할로 붙어 S3 가 AccessDenied 가 난다.
+# ---------------------------------------------------------------------------
 serviceAccountName: reverdi-web
 batchServiceAccountName: reverdi-batch
