@@ -31,6 +31,9 @@ spec:
         {{- include "reverdi.labels" . | nindent 8 }}
         app.kubernetes.io/component: migrate
     spec:
+      {{- if .Values.batchServiceAccountName }}
+      serviceAccountName: {{ .Values.batchServiceAccountName }}
+      {{- end }}
       restartPolicy: OnFailure
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

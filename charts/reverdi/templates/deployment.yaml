@@ -66,6 +66,15 @@ spec:
       {{/* 종료 시 진행 중이던 요청을 마저 처리할 시간 */}}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
 
+      # 🔴 IRSA — 파드별 IAM 역할
+      #    비우면 default SA 를 쓰고, 파드가 노드 IAM 역할로 AWS 에 붙는다.
+      #    로그에 "Found credentials from IAM Role: ...NodeInstanceRole" 이 뜨고
+      #    S3 는 AccessDenied 가 난다.
+      #    로컬(Vagrant)에는 IRSA 가 없으므로 비워둔다.
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- end }}
+
       {{/* 웹 노드에만 뜬다. 배치 노드로 새어 들어가지 않게. */}}
       {{- with .Values.nodeSelector }}
       nodeSelector:

@@ -98,7 +98,12 @@ Resources:
     Properties:
       DBInstanceIdentifier: reverdi-db
       Engine: postgres
-      EngineVersion: "17.2"       # 로컬 CloudNativePG 와 같은 메이저
+      # 🔴 마이너 버전을 박지 않는다.
+      #    RDS 의 마이너 버전 목록은 AWS 가 계속 바꾼다.
+      #    17.2 를 박았다가 "Cannot find version 17.2" 로 실패했다.
+      #    (2026-09 기준 RDS 는 17.5~17.11 만 지원)
+      #    메이저만 주면 AWS 가 그 시점의 최신 마이너를 고른다.
+      EngineVersion: "17"
       DBInstanceClass: db.t4g.small
       AllocatedStorage: "20"
       StorageType: gp3

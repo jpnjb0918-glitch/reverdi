@@ -30,6 +30,9 @@ spec:
             {{- include "reverdi.labels" . | nindent 12 }}
             app.kubernetes.io/component: aggregate
         spec:
+          {{- if .Values.batchServiceAccountName }}
+          serviceAccountName: {{ .Values.batchServiceAccountName }}
+          {{- end }}
           restartPolicy: OnFailure
           {{- with .Values.imagePullSecrets }}
           imagePullSecrets:
