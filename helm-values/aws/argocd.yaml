@@ -1,0 +1,22 @@
+# ===========================================================================
+# Argo CD — AWS 오버레이
+#
+#   helm ... -f helm-values/argocd.yaml -f helm-values/aws/argocd.yaml
+#
+# 🔴 기존 파일을 그대로 쓰고, 다른 부분만 여기서 덮어쓴다.
+#    Helm 은 -f 를 여러 번 받으면 뒤에 온 것이 이긴다.
+#    로컬에서 검증한 설정(toleration · nodeSelector · 자원 요청)은 그대로 유지된다.
+# ===========================================================================
+
+server:
+  service:
+    # 🔴 NodePort → ClusterIP
+    #
+    #    로컬은 NodePort 30081 로 직접 들어왔다.
+    #    AWS 에서 NodePort 를 쓰면 노드에 공인 IP 가 없어 닿지 않고,
+    #    ALB 를 붙이면 Argo CD 가 인터넷에 열린다.
+    #
+    #    Argo CD 는 클러스터를 바꿀 수 있는 도구다.
+    #    비밀번호 하나가 곧 클러스터 전체이므로 포트포워딩으로만 본다.
+    #      kubectl port-forward -n argocd svc/argocd-server 8080:80
+    type: ClusterIP

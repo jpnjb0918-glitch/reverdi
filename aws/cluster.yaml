@@ -1,0 +1,188 @@
+# ===========================================================================
+# EKS 클러스터 정의 — Vagrantfile 과 같은 역할
+#
+#   eksctl create cluster -f aws/cluster.yaml
+#
+# 이 한 줄로 VPC · 서브넷 · NAT · EKS 컨트롤 플레인 · 노드그룹 · IRSA 가 생긴다.
+# 15~20분 걸린다. (Vagrant 의 vagrant up 에 해당)
+#
+# 🔴 왜 eksctl 인가
+#    kubectl 과 Helm 은 "클러스터 안"만 다룬다. VPC 나 EKS 클러스터 자체는
+#    만들 수 없다. 그걸 만들어 주는 도구가 필요한데, eksctl 은 YAML 로
+#    선언하므로 우리가 쓰던 방식(git 의 YAML)이 그대로 이어진다.
+#    내부적으로는 CloudFormation 스택을 만든다 — 지울 때도 한 번에 지워진다.
+# ===========================================================================
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: reverdi
+  region: ap-northeast-2          # 서울
+  version: "1.31"                 # EKS 지원 버전. 너무 최신이면 애드온이 못 따라온다
+
+# ---------------------------------------------------------------------------
+# VPC — 구성도 0-C 의 대역표와 맞춘다
+#
+# 🔴 NAT 을 1개만 둔다 (nat.gateway: Single)
+#    HighlyAvailable 로 두면 AZ 당 하나씩 3개가 생겨 3주에 $90 이 더 든다.
+#    NAT 이 죽으면 파드의 아웃바운드(크롤링·이미지 pull)가 끊기지만,
+#    들어오는 트래픽(ALB → 파드)은 영향이 없다.
+#    2~3주 시연에서는 Single 이 맞는 선택이다.
+# ---------------------------------------------------------------------------
+vpc:
+  cidr: "10.0.0.0/16"
+  nat:
+    gateway: Single
+  clusterEndpoints:
+    publicAccess: true            # 우리가 kubectl 을 쓰려면 필요
+    privateAccess: true           # 노드는 사설 경로로 API 서버에 붙는다
+
+# ---------------------------------------------------------------------------
+# 노드그룹 — Vagrant 의 node1~5 에 해당
+#
+# 관리형 노드그룹을 쓴다. AWS 가 AMI 업데이트와 드레인을 대신 해준다.
+# ---------------------------------------------------------------------------
+managedNodeGroups:
+
+  # --- 웹 --------------------------------------------------------------
+  # Vagrant 의 node1~3. AZ 당 하나씩 떠서 topologySpread 가 의미를 갖는다.
+  - name: reverdi-web
+    instanceType: t3.medium       # 2 vCPU · 4GB
+    desiredCapacity: 3
+    minSize: 3
+    maxSize: 6                    # HPA 가 늘릴 여지
+    volumeSize: 30
+    volumeType: gp3
+    privateNetworking: true       # 🔴 공인 IP 를 주지 않는다 (IPv4 요금 + 공격면)
+    labels:
+      workload: web
+    # taint 는 걸지 않는다 — 웹은 기본 워크로드다
+    availabilityZones:
+      - ap-northeast-2a
+      - ap-northeast-2b
+      - ap-northeast-2c
+    tags:
+      Project: reverdi
+      Env: demo
+
+  # --- 배치 ------------------------------------------------------------
+  # Vagrant 의 node4. 크롤러(2.7GB · Chromium)와 Jenkins 빌드가 여기 뜬다.
+  - name: reverdi-batch
+    instanceType: t3.small        # 2 vCPU · 2GB
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 2
+    volumeSize: 60                # 🔴 크롤러 이미지가 2.7GB
+    volumeType: gp3
+    privateNetworking: true
+    labels:
+      workload: batch
+    # 🔴 Vagrant 와 같은 taint. toleration 있는 파드만 들어온다.
+    taints:
+      - key: workload
+        value: batch
+        effect: NoSchedule
+    availabilityZones:
+      - ap-northeast-2a
+    tags:
+      Project: reverdi
+      Env: demo
+
+  # --- 인프라 ----------------------------------------------------------
+  # Vagrant 의 node5. Argo CD · Prometheus · Grafana · Jenkins 컨트롤러.
+  - name: reverdi-infra
+    instanceType: t3.medium
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 1
+    volumeSize: 50
+    volumeType: gp3
+    privateNetworking: true
+    labels:
+      workload: infra
+    taints:
+      - key: workload
+        value: infra
+        effect: NoSchedule
+    availabilityZones:
+      - ap-northeast-2a
+    tags:
+      Project: reverdi
+      Env: demo
+
+# ---------------------------------------------------------------------------
+# IRSA — 파드별 IAM 역할
+#
+# 🔴 왜 필요한가
+#    앱이 S3 에 붙을 때 액세스 키를 쓰지 않는다. app/domain/storage.py 주석:
+#      "컨테이너의 IAM 역할(ECS Task Role / EKS IRSA)로 인증하므로
+#       액세스 키를 환경변수로 넣지 않는다"
+#    노드 역할을 공유하면 크롤러가 웹의 권한까지 갖는다. 파드마다 나눈다.
+#
+# withOIDC: true 가 없으면 IRSA 자체가 동작하지 않는다.
+# ---------------------------------------------------------------------------
+iam:
+  withOIDC: true
+  serviceAccounts:
+
+    # ALB 를 만드는 컨트롤러
+    - metadata:
+        name: aws-load-balancer-controller
+        namespace: kube-system
+      wellKnownPolicies:
+        awsLoadBalancerController: true
+
+    # EBS 볼륨(PVC)을 만드는 드라이버
+    - metadata:
+        name: ebs-csi-controller-sa
+        namespace: kube-system
+      wellKnownPolicies:
+        ebsCSIController: true
+
+    # 웹 — S3 업로드
+    - metadata:
+        name: reverdi-web
+        namespace: reverdi
+      attachPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: "arn:aws:s3:::reverdi-uploads-*/*"
+          - Effect: Allow
+            Action: s3:ListBucket
+            Resource: "arn:aws:s3:::reverdi-uploads-*"
+
+    # 크롤러 — S3 쓰기만. 삭제 권한을 주지 않는다.
+    - metadata:
+        name: reverdi-batch
+        namespace: reverdi
+      attachPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: s3:PutObject
+            Resource: "arn:aws:s3:::reverdi-uploads-*/*"
+
+# ---------------------------------------------------------------------------
+# 애드온 — 클러스터가 뜰 때 같이 설치
+# ---------------------------------------------------------------------------
+addons:
+  - name: vpc-cni                 # 파드 네트워킹 (Flannel 대신)
+  - name: coredns
+  - name: kube-proxy
+  - name: aws-ebs-csi-driver      # PVC → EBS
+    serviceAccountRoleARN: null   # 위 IRSA 가 붙는다
+
+# ---------------------------------------------------------------------------
+# 컨트롤 플레인 로그 — 문제가 났을 때 CloudWatch 에서 본다
+#
+# ⚠️ 로그 보존에 요금이 붙는다. 시연 후 로그 그룹도 지울 것.
+# ---------------------------------------------------------------------------
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["api", "audit", "authenticator"]
+    logRetentionInDays: 7

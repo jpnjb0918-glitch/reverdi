@@ -1,0 +1,151 @@
+# ===========================================================================
+# RDS PostgreSQL — CloudNativePG 를 대체한다
+#
+#   aws cloudformation deploy --template-file aws/rds.yaml \
+#     --stack-name reverdi-rds --parameter-overrides ...
+#
+# 🔴 왜 CloudFormation 인가
+#    eksctl 은 EKS 만 다룬다. RDS 는 별개다.
+#    CloudFormation 도 YAML 이라 우리 방식(git 의 YAML)이 이어진다.
+#    지울 때 스택 하나만 지우면 되는 것도 장점이다 — 시연 후 비용 정리에 중요.
+#
+# 로컬(CloudNativePG)과의 대응
+#   reverdi-db-rw  →  이 스택의 WriterEndpoint
+#   reverdi-db-ro  →  ReaderEndpoint (읽기 복제본)
+#   자동 승격      →  Multi-AZ 자동 페일오버
+# ===========================================================================
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Reverdi RDS PostgreSQL 17 - Multi-AZ + read replica
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: eksctl 이 만든 VPC
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: 사설 서브넷 2개 이상 (다른 AZ)
+  NodeSecurityGroupId:
+    Type: String
+    Description: EKS 노드 보안그룹 - 여기서 오는 5432 만 허용한다
+  DBPassword:
+    Type: String
+    NoEcho: true                  # 콘솔·로그에 안 찍힌다
+    MinLength: 16
+    Description: 16자 이상. openssl rand -hex 16 으로 만들 것
+
+Resources:
+
+  # -------------------------------------------------------------------------
+  # 서브넷 그룹 — RDS 가 어느 서브넷에 뜰지
+  # 🔴 사설 서브넷만 준다. 인터넷에서 직접 닿지 않는다.
+  # -------------------------------------------------------------------------
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Reverdi private subnets
+      SubnetIds: !Ref PrivateSubnetIds
+      Tags:
+        - { Key: Project, Value: reverdi }
+
+  # -------------------------------------------------------------------------
+  # 보안그룹 — 노드에서 오는 것만 허용
+  #
+  # 🔴 0.0.0.0/0 을 열지 않는다. 소스를 노드 보안그룹으로 지정하면
+  #    IP 가 바뀌어도 규칙을 고칠 필요가 없다.
+  # -------------------------------------------------------------------------
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Reverdi RDS - from EKS nodes only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref NodeSecurityGroupId
+          Description: EKS nodes
+      Tags:
+        - { Key: Project, Value: reverdi }
+
+  # -------------------------------------------------------------------------
+  # 파라미터 그룹 — 🔴 암호화 연결 강제
+  #
+  # 백엔드 보안 요청 1번이다.
+  #   앱의 DATABASE_SSL_MODE=require 는 "클라이언트가 TLS 를 요구"
+  #   여기 rds.force_ssl=1 은 "서버가 평문을 거부"
+  # 둘 다 있어야 완성이다.
+  # -------------------------------------------------------------------------
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: Reverdi - force TLS
+      Family: postgres17
+      Parameters:
+        rds.force_ssl: "1"
+      Tags:
+        - { Key: Project, Value: reverdi }
+
+  # -------------------------------------------------------------------------
+  # 주 인스턴스 — Multi-AZ
+  #
+  # MultiAZ: true 가 동기 스탠바이를 만든다.
+  # 스탠바이는 읽기에 쓸 수 없다 — 고가용성 전용이다.
+  # 조회 오프로딩은 아래 읽기 복제본이 담당한다.
+  # -------------------------------------------------------------------------
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete        # ⚠️ 시연용. 운영이면 Snapshot
+    Properties:
+      DBInstanceIdentifier: reverdi-db
+      Engine: postgres
+      EngineVersion: "17.2"       # 로컬 CloudNativePG 와 같은 메이저
+      DBInstanceClass: db.t4g.small
+      AllocatedStorage: "20"
+      StorageType: gp3
+      StorageEncrypted: true      # 저장 시 암호화 (KMS 기본키)
+      MultiAZ: true               # 🔴 동기 스탠바이 — 페일오버 시연의 전제
+      DBName: reverdi
+      MasterUsername: reverdi
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: [!Ref DBSecurityGroup]
+      DBParameterGroupName: !Ref DBParameterGroup
+      PubliclyAccessible: false   # 🔴 공인 IP 없음 (IPv4 요금도 안 붙는다)
+      BackupRetentionPeriod: 7    # PITR 7일
+      PreferredBackupWindow: "17:00-18:00"        # KST 새벽 2~3시
+      PreferredMaintenanceWindow: "sun:18:00-sun:19:00"
+      EnablePerformanceInsights: false            # 요금 절약
+      AutoMinorVersionUpgrade: true
+      Tags:
+        - { Key: Project, Value: reverdi }
+
+  # -------------------------------------------------------------------------
+  # 읽기 복제본 — 조회 오프로딩
+  #
+  # 🔴 이게 있어야 앱의 DATABASE_RO_URL 이 의미를 갖는다.
+  #    주 DB 가 전환되는 동안에도 조회가 끊기지 않는 이유다.
+  #    (로컬에서 검증한 그 동작)
+  #
+  # 비동기 복제라 약간의 지연이 있다. ReplicaLag 를 CloudWatch 로 본다.
+  # -------------------------------------------------------------------------
+  DBReadReplica:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBInstanceIdentifier: reverdi-db-ro
+      SourceDBInstanceIdentifier: !Ref DBInstance
+      DBInstanceClass: db.t4g.small
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: true
+      Tags:
+        - { Key: Project, Value: reverdi }
+
+Outputs:
+  WriterEndpoint:
+    Description: 쓰기 - 앱의 DATABASE_URL 에 넣는다
+    Value: !GetAtt DBInstance.Endpoint.Address
+  ReaderEndpoint:
+    Description: 읽기 - 앱의 DATABASE_RO_URL 에 넣는다
+    Value: !GetAtt DBReadReplica.Endpoint.Address
+  SecurityGroupId:
+    Value: !Ref DBSecurityGroup

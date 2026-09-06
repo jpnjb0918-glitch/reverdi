@@ -1,0 +1,34 @@
+# ===========================================================================
+# 모니터링 — AWS 오버레이
+#
+#   helm ... -f helm-values/kube-prometheus-stack.yaml \
+#            -f helm-values/aws/kube-prometheus-stack.yaml
+# ===========================================================================
+
+prometheus:
+  prometheusSpec:
+    # 로컬 7d → 3d. EBS 요금을 줄인다.
+    # 2~3주 시연에서 7일치 지표를 볼 일이 없다.
+    retention: 3d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          # 🔴 local-path → gp3
+          #    local-path 는 k3s 내장 프로비저너다. EKS 에는 없다.
+          #    EBS CSI 드라이버가 gp3 볼륨을 만든다.
+          storageClassName: gp3
+
+grafana:
+  persistence:
+    storageClassName: gp3
+  service:
+    # ClusterIP — 포트포워딩으로만
+    #   kubectl port-forward -n monitoring svc/kps-grafana 3000:80
+    type: ClusterIP
+
+# ⚠️ EKS 는 컨트롤 플레인이 AWS 관리 영역이라
+#    kube-proxy 를 제외한 구성요소를 긁을 수 없다.
+#    (기존 파일에서 이미 꺼져 있지만 명시해 둔다)
+kubeControllerManager: { enabled: false }
+kubeScheduler:         { enabled: false }
+kubeEtcd:              { enabled: false }

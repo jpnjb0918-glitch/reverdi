@@ -1,0 +1,16 @@
+# ===========================================================================
+# Jenkins — AWS 오버레이
+#
+#   helm ... -f helm-values/jenkins.yaml -f helm-values/aws/jenkins.yaml
+# ===========================================================================
+
+controller:
+  # NodePort → ClusterIP. 포트포워딩으로만 본다.
+  #   kubectl port-forward -n infra svc/jenkins 8080:8080
+  serviceType: ClusterIP
+
+  persistence:
+    # 🔴 local-path → gp3
+    #    local-path 는 k3s 내장 프로비저너다. EKS 에는 없다.
+    #    ⚠️ 경로가 controller.persistence 다. 최상위 persistence 가 아니다.
+    storageClass: gp3
