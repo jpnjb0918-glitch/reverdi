@@ -63,7 +63,7 @@ spec:
       #    로그에 "Found credentials from IAM Role: ...NodeInstanceRole" 이 뜨고
       #    S3 는 AccessDenied 가 난다.
       #
-      #    ⚠️ 이 줄을 {{- with }} 블록 안에 넣으면 안 된다.
+      #    ⚠️ 이 줄을 with 블록 안에 넣으면 안 된다.
       #       with 안에서는 . 이 바뀌어 .Values 를 못 읽는다 (nil pointer).
       #
       #    로컬(Vagrant)에는 IRSA 가 없으므로 비워둔다 → 이 줄이 렌더링되지 않는다.
