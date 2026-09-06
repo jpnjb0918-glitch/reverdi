@@ -11,13 +11,13 @@
 # 이미지 — ECR
 # ---------------------------------------------------------------------------
 image:
-  repository: <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/reverdi-backend
+  repository: 611669940814.dkr.ecr.ap-northeast-2.amazonaws.com/reverdi-backend
   # ↓ Jenkins 가 커밋 해시 7자리로 갱신한다
   tag: "latest"
   pullPolicy: IfNotPresent
 
 crawlerImage:
-  repository: <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/reverdi-crawler
+  repository: 611669940814.dkr.ecr.ap-northeast-2.amazonaws.com/reverdi-crawler
 
 # ---------------------------------------------------------------------------
 # 외부 접근 — ALB
@@ -31,7 +31,7 @@ ingress:
   enabled: true
   className: alb
   host: ""            # 도메인이 정해지면 채운다. 비우면 ALB DNS 로 접속
-  certificateArn: "arn:aws:acm:ap-northeast-2:<AWS_ACCOUNT_ID>:certificate/<CERT_ID>"
+  certificateArn: ""    # 도메인 생기면 ACM ARN 을 넣는다
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     # 파드 IP 로 직접 분산. VPC CNI 라 가능하다.
@@ -106,7 +106,7 @@ config:
 
   # 🔴 S3 를 강제한다. 로컬 디스크 모드는 파드가 죽으면 업로드가 사라진다.
   ALLOW_LOCAL_STORAGE: "false"
-  S3_BUCKET: "<S3_BUCKET_NAME>"
+  S3_BUCKET: "reverdi-uploads-611669940814"
   AWS_REGION: "ap-northeast-2"
   # CloudFront 를 붙이면 그 도메인. 비우면 버킷 주소로 만든다.
   S3_PUBLIC_BASE: ""
