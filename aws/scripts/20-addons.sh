@@ -42,6 +42,42 @@ done
 kubectl get ns | grep -E "reverdi|infra|argocd|monitoring"
 
 echo ""
+echo "--- 🔴 EBS CSI 드라이버 IRSA 연결 ---"
+# 애드온과 IRSA 는 별개다. cluster.yaml 이 만든 역할을 여기서 붙인다.
+# 이게 없으면 PVC 가 전부 Pending 이 되고, Prometheus·Grafana·Jenkins 가 안 뜬다.
+# 증상이 헷갈린다 — Helm 은 릴리스가 설치되면 "성공"이라 파드가 뜨는지는 안 본다.
+EBS_ROLE=$(eksctl get iamserviceaccount --cluster "$CLUSTER" --region "$REGION" -o json 2>/dev/null \
+  | python3 -c "import json,sys; print([x['status']['roleARN'] for x in json.load(sys.stdin) if x['metadata']['name']=='ebs-csi-controller-sa'][0])" 2>/dev/null || echo "")
+
+if [ -n "$EBS_ROLE" ]; then
+  echo "    역할: $EBS_ROLE"
+  # 애드온이 없으면 만들고, 있으면 역할만 갱신한다
+  if aws eks describe-addon --cluster-name "$CLUSTER" --addon-name aws-ebs-csi-driver \
+       --region "$REGION" >/dev/null 2>&1; then
+    aws eks update-addon --cluster-name "$CLUSTER" --addon-name aws-ebs-csi-driver \
+      --service-account-role-arn "$EBS_ROLE" --region "$REGION" \
+      --resolve-conflicts OVERWRITE >/dev/null
+    echo "    애드온 갱신"
+  else
+    eksctl create addon --cluster "$CLUSTER" --region "$REGION" \
+      --name aws-ebs-csi-driver --service-account-role-arn "$EBS_ROLE" --force
+    echo "    애드온 생성"
+  fi
+  echo "    컨트롤러 기동 대기..."
+  kubectl -n kube-system rollout status deploy/ebs-csi-controller --timeout=300s 2>/dev/null || true
+else
+  echo "    🔴 ebs-csi-controller-sa 역할을 못 찾았습니다."
+  echo "       eksctl get iamserviceaccount --cluster $CLUSTER --region $REGION"
+fi
+
+echo ""
+echo "--- 🔴 metrics-server ---"
+# EKS 는 metrics-server 가 기본 설치가 아니다. 로컬 k3s 에는 내장이었다.
+# 이게 없으면 HPA 가 cpu: <unknown> 이 되고 Argo CD 가 Degraded 로 본다.
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl -n kube-system rollout status deploy/metrics-server --timeout=180s || true
+
+echo ""
 echo "--- StorageClass ---"
 # gp2 가 기본으로 잡혀 있으면 gp3 로 바꾼다. 같은 성능에 더 싸다.
 kubectl apply -f - <<'YAML'

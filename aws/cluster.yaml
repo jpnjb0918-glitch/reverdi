@@ -71,7 +71,14 @@ managedNodeGroups:
   # --- 배치 ------------------------------------------------------------
   # Vagrant 의 node4. 크롤러(2.7GB · Chromium)와 Jenkins 빌드가 여기 뜬다.
   - name: reverdi-batch
-    instanceType: t3.small        # 2 vCPU · 2GB
+    # 🔴 t3.small(2GB) 로 뒀다가 크롤러가 안 떴다 (2026-09-06 실패 → 수정)
+    #    t3.small 의 할당 가능 메모리는 1.4GB — 시스템·kubelet 이 0.5GB 를 먹는다.
+    #    크롤러는 requests.memory 2Gi 를 요구한다 (Chromium).
+    #    노드 전체보다 요청이 커서 "Insufficient memory" 로 영원히 Pending 이었다.
+    #
+    #    💡 노드 크기를 정하기 전에 파드의 requests 합계를 확인할 것:
+    #       helm template reverdi charts/reverdi -f values-aws.yaml | grep -A3 requests
+    instanceType: t3.medium       # 2 vCPU · 4GB (할당 가능 약 3.3GB)
     desiredCapacity: 1
     minSize: 1
     maxSize: 2
@@ -173,8 +180,19 @@ addons:
   - name: vpc-cni                 # 파드 네트워킹 (Flannel 대신)
   - name: coredns
   - name: kube-proxy
-  - name: aws-ebs-csi-driver      # PVC → EBS
-    serviceAccountRoleARN: null   # 위 IRSA 가 붙는다
+  # 🔴 EBS CSI 드라이버 (2026-09-06 실패 → 수정)
+  #
+  #    전에는 serviceAccountRoleARN: null 로 뒀다가 애드온이 아예 안 만들어졌다.
+  #    iam.serviceAccounts 에 ebsCSIController 를 선언해두면 자동으로 연결될 줄
+  #    알았는데, 애드온과 IRSA 는 별개다.
+  #
+  #    증상이 헷갈렸다 — 스크립트는 전부 "성공"으로 끝나고 PVC 만 조용히 Pending 이었다.
+  #    Prometheus · Grafana · Jenkins 가 전부 안 떴다.
+  #
+  #    ⚠️ eksctl 이 만든 역할 이름은 무작위다.
+  #       그래서 여기에 ARN 을 미리 적을 수 없다.
+  #       20-addons.sh 가 클러스터 생성 후 조회해서 연결한다.
+  - name: aws-ebs-csi-driver
 
 # ---------------------------------------------------------------------------
 # 컨트롤 플레인 로그 — 문제가 났을 때 CloudWatch 에서 본다
