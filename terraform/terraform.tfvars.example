@@ -1,0 +1,27 @@
+region = "ap-northeast-2"
+
+# EKS
+kubernetes_version = "1.33"
+
+# First run:
+# deploy_app = false
+# After both ECR images are pushed:
+# deploy_app = true
+# image_tag = "git-abcdef1"
+
+deploy_app       = false
+deploy_argocd    = true
+deploy_monitoring = true
+deploy_jenkins   = true
+
+# Optional HTTPS
+domain             = ""
+acm_certificate_arn = ""
+
+# Demo sizing from the existing AWS design
+web_instance_type   = "t3.medium"
+batch_instance_type = "t3.medium"
+infra_instance_type = "t3.medium"
+
+db_instance_class     = "db.t4g.small"
+db_allocated_storage  = 20
