@@ -4,22 +4,22 @@ resource "random_password" "db" {
 }
 
 resource "random_password" "session" {
-  length  64
+  length  = 64
   special = false
 }
 
 resource "random_password" "admin" {
-  length  24
+  length  = 24
   special = false
 }
 
 resource "random_password" "client" {
-  length  24
+  length  = 24
   special = false
 }
 
 resource "random_password" "grafana" {
-  length  24
+  length  = 24
   special = false
 }
 

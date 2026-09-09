@@ -56,8 +56,8 @@ module "eks" {
       capacity_type  = "ON_DEMAND"
 
       min_size     = 1
-      max_size     = 2
-      desired_size = 1
+      max_size     = 3
+      desired_size = 2   #크롤러+젠킨스 나눔
 
       use_custom_launch_template = false
       disk_size                  = 60

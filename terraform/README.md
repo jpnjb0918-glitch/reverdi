@@ -158,3 +158,50 @@ terraform destroy
 5. Argo CD/Jenkins/Prometheus의 Vagrant용 `NodePort`와 `local-path`를 AWS에서는 Terraform Helm override로 바꿉니다.
 6. RDS는 기존 CloudFormation과 동일하게 private + Multi-AZ + read replica + TLS 강제 구조입니다.
 7. 기존 `aws/scripts/70-argocd.sh`, `80-monitoring.sh`가 참조하는 `helm-values/aws/*.yaml` 파일이 현재 압축본에는 존재하지 않아, Terraform에서 AWS 차이를 직접 override하도록 만들었습니다.
+
+# 09/09 이동휘 수정내역
+1. rds.tf 내에서 "="이 빠져있는 오류 해결
+2. eks.tf의 배치사이즈 수정
+  #원본
+  batch = {
+    min_size     = 1
+    max_size     = 2
+    desired_size = 1      
+  }
+  #수정본
+  batch = {
+    min_size     = 1
+    max_size     = 3
+    desired_size = 2      
+  }
+3. 명령어 치기
+aws s3api create-bucket --bucket reverdi
+tfstate-<계정번호> \
+    --region ap-northeast-2 \
+    --create-bucket-configuration 
+LocationConstraint=ap-northeast-2
+
+aws s3api put-bucket-versioning --bucket 
+reverdi-tfstate-<계정번호> \
+    --versioning-configuration Status=Enabled
+
+aws dynamodb create-table --table-name 
+reverdi-tflock \
+    --attribute-definitions 
+AttributeName=LockID,AttributeType=S \
+    --key-schema 
+AttributeName=LockID,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST --region 
+ap-northeast-2
+
+
+4. versions.tf의 backend "s3"추가
+  #기존에 없던게 들어감
+    backend "s3" {
+      bucket         = "reverdi-tfstate-<계정번호(재윤씨가쓸 것)>
+      key            = "eks/terraform.tfstate"
+      region         = "ap-northeast-2"
+      dynamodb_table = "reverdi-tflock"
+      encrypt        = true
+    } 
+
