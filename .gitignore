@@ -40,3 +40,5 @@ vagrant/build.log
 .env
 .venv/
 __pycache__/
+
+*.zip

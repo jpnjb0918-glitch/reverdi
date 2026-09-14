@@ -79,9 +79,13 @@ managedNodeGroups:
     #    💡 노드 크기를 정하기 전에 파드의 requests 합계를 확인할 것:
     #       helm template reverdi charts/reverdi -f values-aws.yaml | grep -A3 requests
     instanceType: t3.medium       # 2 vCPU · 4GB (할당 가능 약 3.3GB)
-    desiredCapacity: 1
+    # 🔴 2대다 (2026-09-06 실패 → 수정)
+    #    1대로 뒀더니 크롤러와 Jenkins 빌드 파드가 서로 밀어냈다.
+    #      "0/6 nodes are available: 2 Insufficient cpu, 2 Insufficient memory"
+    #    빌드 파드 하나가 컨테이너 5~6개를 띄워 노드를 거의 다 쓴다.
+    desiredCapacity: 2
     minSize: 1
-    maxSize: 2
+    maxSize: 3
     volumeSize: 60                # 🔴 크롤러 이미지가 2.7GB
     volumeType: gp3
     privateNetworking: true
