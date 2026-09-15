@@ -42,3 +42,18 @@ vagrant/build.log
 __pycache__/
 
 *.zip
+
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt
+
+# Terraform
+terraform/.terraform/
+terraform/terraform.tfvars
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt
