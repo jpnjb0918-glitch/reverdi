@@ -106,5 +106,12 @@ module "eks" {
 
   tags = var.tags
 
-  depends_on = [module.vpc]
+  # depends_on 은 쓰지 않는다.
+  #   module 에 depends_on 을 붙이면 그 모듈의 모든 속성이
+  #   'apply 전까지 알 수 없음' 이 되어, 안쪽 노드그룹 서브모듈의
+  #   count 를 계산하지 못한다.
+  #     Error: Invalid count argument
+  #
+  #   vpc_id / subnet_ids 로 이미 module.vpc 를 참조하므로
+  #   Terraform 이 알아서 VPC 를 먼저 만든다.
 }

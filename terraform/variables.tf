@@ -30,7 +30,7 @@ variable "public_subnets" {
 
 variable "private_subnets" {
   type    = list(string)
-  default = ["10.0.1.0/20", "10.0.17.0/20", "10.0.33.0/20"]
+  default = ["10.0.0.0/20", "10.0.16.0/20", "10.0.32.0/20"]
 }
 
 variable "web_instance_type" {
@@ -150,7 +150,7 @@ variable "enable_sonarqube" {
 
 variable "sonarqube_chart_version" {
   type    = string
-  default = "10.7.0"
+  default = "10.7.0+3598"
 }
 
 variable "sonarqube_admin_password" {

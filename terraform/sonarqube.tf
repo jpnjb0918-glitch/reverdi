@@ -48,7 +48,7 @@ resource "helm_release" "sonarqube" {
   namespace  = "infra"
   repository = "https://SonarSource.github.io/helm-chart-sonarqube"
   chart      = "sonarqube"
-  version    = var.sonarqube_chart_version
+  # version    = var.sonarqube_chart_version
 
   # 기동에 오래 걸린다. Elasticsearch 가 올라오길 기다려야 한다.
   timeout = 900
