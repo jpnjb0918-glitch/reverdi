@@ -1,0 +1,109 @@
+# ---------------------------------------------------------------------------
+# infra/minio.yaml — S3 호환 오브젝트 스토리지 (node5, Vagrant 전용)
+#
+# pgdump-cronjob.yaml(B담당)이 만든 백업이 여기 저장된다.
+# AWS로 가면 이 파일은 버려지고 S3로 대체된다. (④ 문서 6장, 그룹 C)
+#
+# 🔴 root 계정 비밀번호는 여기 넣지 않는다. 미리 Secret을 만들고 참조만 한다.
+#    kubectl create namespace infra   # registry.yaml에서 이미 만들었으면 생략
+#    kubectl create secret generic minio-credentials -n infra \
+#      --from-literal=MINIO_ROOT_USER=admin \
+#      --from-literal=MINIO_ROOT_PASSWORD="$(openssl rand -hex 16)"
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: infra
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: infra
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      nodeSelector:
+        workload: infra
+      # 🔴 node5 에 taint(workload=infra:NoSchedule) 가 걸려 있다.
+      #    nodeSelector 는 "어디로 갈지"만 정한다. toleration 이 없으면
+      #    taint 걸린 노드가 파드를 거부해 Pending 에서 멈춘다.
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: infra
+          effect: NoSchedule
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          envFrom:
+            - secretRef:
+                name: minio-credentials   # 위에서 미리 생성
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: infra
+spec:
+  # 파드끼리 내부 통신용 (백업 CronJob이 여기로 업로드)
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+# 콘솔 확인용 (선택). 없어도 백업 CronJob은 정상 동작한다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-console
+  namespace: infra
+spec:
+  type: NodePort
+  selector:
+    app: minio
+  ports:
+    - port: 9001
+      targetPort: 9001
+      nodePort: 30901

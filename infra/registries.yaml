@@ -1,0 +1,20 @@
+# /etc/rancher/k3s/registries.yaml
+#
+# 🔴 이 파일은 kubectl apply 대상이 아니다. 쿠버네티스 리소스가 아니라
+#    k3s(containerd)의 노드 설정 파일이다.
+#
+# node0 ~ node5 전부에 이 파일을 복사한 뒤 k3s를 재시작해야 적용된다.
+# 하나라도 빠지면 그 노드에서만 ImagePullBackOff가 난다.
+#
+#   scp registries.yaml node1:/tmp/
+#   ssh node1 "sudo mv /tmp/registries.yaml /etc/rancher/k3s/registries.yaml"
+#   ssh node1 "sudo systemctl restart k3s-agent"   # node0은 k3s (컨트롤)
+#
+mirrors:
+  "192.168.56.15:30500":
+    endpoint:
+      - "http://192.168.56.15:30500"
+configs:
+  "192.168.56.15:30500":
+    tls:
+      insecure_skip_verify: true   # 사설 레지스트리, 자체서명 인증서 없음(HTTP)

@@ -1,0 +1,13 @@
+﻿# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt
+crash.log
+
+# 🔴 tfstate 와 tfvars 에는 비밀번호가 평문으로 들어간다
+terraform.tfvars
+*.auto.tfvars

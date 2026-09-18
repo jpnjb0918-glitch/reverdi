@@ -1,0 +1,97 @@
+# ---------------------------------------------------------------------------
+# infra/registry.yaml — 로컬 Docker Registry (node5, Vagrant 전용)
+#
+# Jenkins가 빌드한 이미지를 여기에 올려두면 node1~4의 파드가 받아간다.
+# AWS로 가면 이 파일은 버려지고 ECR로 대체된다. (④ 문서 6장, 그룹 C)
+#
+# 🔴 이 파일만 적용해서는 부족하다.
+#    전 노드(node0~5)가 이 레지스트리 주소를 알아야 이미지를 당겨올 수 있다.
+#    → 같이 올린 registries.yaml 을 각 노드의 /etc/rancher/k3s/ 에 복사하고
+#      k3s(컨트롤) / k3s-agent(워커)를 재시작해야 한다. (kubectl apply 대상 아님)
+#
+# 사전 작업
+#   kubectl label node node5 workload=infra
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: infra
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: infra
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path   # k3s 기본 제공 (node5 로컬 디스크)
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: infra
+  labels:
+    app: registry
+spec:
+  replicas: 1   # 🔴 RWO PVC라 2개 이상 띄우면 안 됨
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+    spec:
+      nodeSelector:
+        workload: infra
+      # 🔴 node5 에 taint(workload=infra:NoSchedule) 가 걸려 있다.
+      #    nodeSelector 는 "어디로 갈지"만 정한다. toleration 이 없으면
+      #    taint 걸린 노드가 파드를 거부해 Pending 에서 멈춘다.
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: infra
+          effect: NoSchedule
+      containers:
+        - name: registry
+          image: registry:2
+          ports:
+            - containerPort: 5000
+          env:
+            # 오래된 태그 정리용 (docker exec registry bin/registry garbage-collect)
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/registry
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: registry-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: infra
+spec:
+  type: NodePort
+  selector:
+    app: registry
+  ports:
+    - port: 5000
+      targetPort: 5000
+      # 🔴 문서 0-C IP 대역표와 반드시 일치해야 함: 192.168.56.15:30500
+      #    B의 values-vagrant.yaml image.repository가 이 주소를 참조한다.
+      nodePort: 30500
