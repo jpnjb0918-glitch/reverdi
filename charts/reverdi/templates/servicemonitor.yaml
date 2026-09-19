@@ -1,0 +1,51 @@
+{{/*
+===========================================================================
+ServiceMonitor — Prometheus 가 앱의 /metrics 를 긁어가게 한다
+
+🔴 이게 없으면 앱 지표가 하나도 안 쌓인다.
+   앱은 prometheus-fastapi-instrumentator 로 /metrics 를 내보내는데,
+   Prometheus 는 "누구를 긁을지" 를 이 리소스로 안다.
+
+   증상: Grafana 에서 http_requests_total 을 조회해도 결과가 비어 있다.
+         파드는 멀쩡하고 /metrics 도 200 을 주는데 그래프만 평탄하다.
+
+⚠️ CRD 가 있을 때만 만든다.
+   kube-prometheus-stack 이 없는 환경(로컬 초기 구축 등)에서는
+   ServiceMonitor 종류 자체가 없어 설치가 실패한다.
+   Capabilities.APIVersions 로 확인해 있을 때만 렌더링한다.
+
+⚠️ kube-prometheus-stack 의 serviceMonitorSelectorNilUsesHelmValues 가
+   false 여야 이 네임스페이스의 ServiceMonitor 도 잡는다.
+   helm-values/kube-prometheus-stack.yaml 에 이미 그렇게 되어 있다.
+===========================================================================
+*/}}
+{{- if and .Values.metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "reverdi.fullname" . }}-web
+  labels:
+    {{- include "reverdi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "reverdi.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    {{/*
+      port 는 숫자가 아니라 Service 의 포트 "이름" 이다.
+      service.yaml 의 ports[].name: http 와 일치해야 한다.
+    */}}
+    - port: http
+      path: {{ .Values.metrics.serviceMonitor.path }}
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+      scheme: http
+{{- end }}

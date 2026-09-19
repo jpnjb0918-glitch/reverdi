@@ -30,10 +30,18 @@ nodeport:
 ingress:
   enabled: true
   className: alb
-  host: ""            # 도메인이 정해지면 채운다. 비우면 ALB DNS 로 접속
-  certificateArn: ""    # 도메인 생기면 ACM ARN 을 넣는다
+  host: "re-verdi.com"
+  # 🔴 비워둔다 — ALB 컨트롤러가 host 에 맞는 ACM 인증서를 자동으로 찾는다.
+  #    dns.tf 가 *.re-verdi.com 인증서를 발급해두므로 매칭된다.
+  #    직접 적으면 apply 후 ARN 을 복사해 넣는 수동 단계가 생긴다.
+  certificateArn: ""
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
+    # 🔴 ALB 를 하나만 만든다.
+    #    같은 group.name 을 쓰는 Ingress 들이 ALB 하나를 나눠 쓴다.
+    #    앱과 Grafana 가 각자 ALB 를 만들면 월 $16 이 더 든다.
+    alb.ingress.kubernetes.io/group.name: reverdi
+    alb.ingress.kubernetes.io/group.order: "10"
     # 파드 IP 로 직접 분산. VPC CNI 라 가능하다.
     alb.ingress.kubernetes.io/target-type: ip
     # 🔴 /ready 가 아니다. /ready 는 DB 를 확인하므로
@@ -47,7 +55,11 @@ ingress:
     #      ① certificateArn 에 ACM ARN
     #      ② listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     #      ③ ssl-redirect: "443"
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]' 
+    # 🔴 HTTPS 를 열었다 (2026-09-15 · 도메인 확보)
+    #    re-verdi.com 을 사고 dns.tf 가 *.re-verdi.com 인증서를 발급한다.
+    #    certificateArn 은 비워둔다 — 컨트롤러가 host 에 맞는 것을 찾는다.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
     # 종료 중인 파드로 요청이 가지 않도록 등록취소 지연
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
 
@@ -154,3 +166,7 @@ pgdump:
 # ---------------------------------------------------------------------------
 serviceAccountName: reverdi-web
 batchServiceAccountName: reverdi-batch
+
+# AWS 에서는 kube-prometheus-stack 이 항상 함께 설치되므로 켠다
+serviceMonitor:
+  enabled: true

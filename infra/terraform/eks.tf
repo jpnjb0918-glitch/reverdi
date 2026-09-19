@@ -29,6 +29,21 @@ module "eks" {
     }
     vpc-cni = {
       most_recent = true
+
+      # 🔴 노드보다 먼저 설치한다 (2026-09-19)
+      #
+      #    없으면 이 순서가 된다:
+      #      노드 생성 → CNI 없음 → NotReady → 노드그룹이 Ready 를 기다림 → 교착
+      #    실제로 39분간 NotReady 였고 애드온이 하나도 안 만들어졌다.
+      #    eksctl 은 알아서 처리했지만 Terraform 은 명시해야 한다.
+      before_compute = true
+
+      # 🔴 이미 있는 쿠버네티스 리소스를 덮어쓴다
+      #    손으로 먼저 설치한 것을 Terraform 에 넘길 때
+      #    라벨이 달라 ConfigurationConflict → CREATE_FAILED 가 된다.
+      #    손으로 쓴 --resolve-conflicts OVERWRITE 와 같은 뜻이다.
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
     }
   }
 

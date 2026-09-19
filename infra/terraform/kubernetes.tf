@@ -142,7 +142,7 @@ resource "kubernetes_secret_v1" "app" {
 
   data        = {
     DATABASE_URL    = "postgresql+asyncpg://reverdi:${random_password.db.result}@${aws_db_instance.writer.address}:5432/reverdi"
-    DATABASE_RO_URL = "postgresql+asyncpg://reverdi:${random_password.db.result}@${aws_db_instance.reader.address}:5432/reverdi"
+    DATABASE_RO_URL = "postgresql+asyncpg://reverdi:${random_password.db.result}@${length(aws_db_instance.reader) > 0 ? aws_db_instance.reader[0].address : aws_db_instance.writer.address}:5432/reverdi"
     SESSION_SECRET  = random_password.session.result
     ADMIN_USERNAME  = "admin"
     ADMIN_PASSWORD  = random_password.admin.result
@@ -164,7 +164,7 @@ resource "kubernetes_secret_v1" "db" {
 
   data        = {
     DATABASE_URL    = "postgresql+asyncpg://reverdi:${random_password.db.result}@${aws_db_instance.writer.address}:5432/reverdi"
-    DATABASE_RO_URL = "postgresql+asyncpg://reverdi:${random_password.db.result}@${aws_db_instance.reader.address}:5432/reverdi"
+    DATABASE_RO_URL = "postgresql+asyncpg://reverdi:${random_password.db.result}@${length(aws_db_instance.reader) > 0 ? aws_db_instance.reader[0].address : aws_db_instance.writer.address}:5432/reverdi"
   }
 
   depends_on = [aws_db_instance.writer, aws_db_instance.reader]

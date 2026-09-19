@@ -21,10 +21,86 @@ prometheus:
 grafana:
   persistence:
     storageClassName: gp3
+
+  # -------------------------------------------------------------------------
+  # 🔴 ALB Ingress 로 노출 — 팀원이 브라우저로 본다
+  #
+  #    부하·모니터링 시연을 맡은 팀원이 AWS 자격증명 없이 봐야 해서 연다.
+  #
+  #    NLB 가 아니라 ALB 인 이유
+  #      NLB 는 TCP 를 그대로 흘려 TLS 를 끊지 않는다.
+  #      ALB 는 ACM 인증서로 HTTPS 를 종료한다.
+  #
+  #    group.name 이 앱과 같아서 ALB 를 하나만 쓴다.
+  #    인증서는 컨트롤러가 host 에 맞는 것을 ACM 에서 찾는다.
+  #
+  #    ⚠️ 시연이 끝나면 ingress.enabled 를 false 로 되돌린다.
+  # -------------------------------------------------------------------------
   service:
-    # ClusterIP — 포트포워딩으로만
-    #   kubectl port-forward -n monitoring svc/kps-grafana 3000:80
     type: ClusterIP
+
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      # 🔴 ALB 컨트롤러 v3.5.0 버그 우회 (2026-09-19)
+      alb.ingress.kubernetes.io/load-balancer-attributes: routing.http.xff_header_processing.mode=append
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/group.name: reverdi
+      alb.ingress.kubernetes.io/group.order: "20"
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/healthcheck-path: /api/health
+      # external-dns 가 이 이름으로 Route 53 레코드를 만든다
+      external-dns.alpha.kubernetes.io/hostname: grafana.re-verdi.com
+    hosts:
+      - grafana.re-verdi.com
+    path: /
+    pathType: Prefix
+
+  # HTTPS 뒤에 있으므로 Grafana 가 자기 주소를 알아야 한다
+  grafana.ini:
+    server:
+      root_url: "https://grafana.re-verdi.com"
+
+  # -------------------------------------------------------------------------
+  # 🔴 Loki 데이터소스
+  #    없으면 로그 대시보드가 데이터소스를 못 찾는다.
+  # -------------------------------------------------------------------------
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
+
+  # -------------------------------------------------------------------------
+  # 대시보드 자동 배치
+  #   grafana-dashboards/ 의 JSON 을 ConfigMap 으로 만들면 sidecar 가 읽는다:
+  #     kubectl create configmap reverdi-dashboards -n monitoring \
+  #       --from-file=grafana-dashboards/ -o yaml --dry-run=client | \
+  #       kubectl label -f- --local -o yaml grafana_dashboard=1 | kubectl apply -f -
+  # -------------------------------------------------------------------------
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: monitoring
+
+  # -------------------------------------------------------------------------
+  # 대시보드 자동 배치
+  #   grafana-dashboards/ 의 JSON 을 ConfigMap 으로 만들면 sidecar 가 읽는다.
+  #     kubectl create configmap reverdi-dashboards -n monitoring \
+  #       --from-file=grafana-dashboards/ -o yaml --dry-run=client | \
+  #       kubectl label -f- --local -o yaml grafana_dashboard=1 | kubectl apply -f -
+  # -------------------------------------------------------------------------
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: monitoring
 
 # ⚠️ EKS 는 컨트롤 플레인이 AWS 관리 영역이라
 #    kube-proxy 를 제외한 구성요소를 긁을 수 없다.

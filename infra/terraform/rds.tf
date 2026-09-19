@@ -33,7 +33,14 @@ resource "aws_security_group" "rds" {
     protocol        = "tcp"
     from_port       = 5432
     to_port         = 5432
-    security_groups = [module.eks.node_security_group_id]
+    # 🔴 두 보안그룹을 모두 허용한다 (2026-09-19)
+    #    EKS 모듈의 node_security_group 과, EKS 가 자동 생성해
+    #    노드에 실제로 붙는 cluster_primary_security_group 이 다르다.
+    #    후자만 붙어 있어 마이그레이션 Job 이 TimeoutError 로 죽었다.
+    security_groups = [
+      module.eks.node_security_group_id,
+      module.eks.cluster_primary_security_group_id,
+    ]
   }
 
   egress {
@@ -102,7 +109,13 @@ resource "aws_db_instance" "writer" {
   depends_on = [module.eks]
 }
 
+# 🔴 임시로 껐다 (2026-09-19)
+#    복제본 생성이 주 DB 백업을 유발하고, 그 백업 중에는
+#    복제본을 못 만들어 실패가 반복됐다.
+#    나머지를 끝낸 뒤 count = 0 줄을 지워 되살린다.
 resource "aws_db_instance" "reader" {
+  count = 0
+
   identifier = "${var.name}-db-ro"
 
   engine         = "postgres"

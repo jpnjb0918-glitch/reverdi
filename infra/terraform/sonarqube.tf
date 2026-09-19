@@ -55,6 +55,13 @@ resource "helm_release" "sonarqube" {
   wait    = true
 
   values = [yamlencode({
+    # 🔴 Community Build 를 쓴다 (2026-09-19)
+    #    차트 10.7 부터 edition 대신 community.enabled 로 바뀌었다.
+    #      "You must choose an 'edition': 'developer' or 'enterprise'.
+    #       If you want Community Build, unset 'edition' and set
+    #       'community.enabled=true' instead."
+    community = { enabled = true }
+
     # --- 배치 ---------------------------------------------------------
     # infra 노드에만 뜨게 한다. 웹 노드의 자원을 쓰면 서비스가 흔들린다.
     nodeSelector = { workload = "infra" }

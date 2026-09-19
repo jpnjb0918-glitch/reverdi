@@ -23,7 +23,7 @@ output "rds_writer_endpoint" {
 }
 
 output "rds_reader_endpoint" {
-  value = aws_db_instance.reader.address
+  value = length(aws_db_instance.reader) > 0 ? aws_db_instance.reader[0].address : "(복제본 비활성 — 주 DB 사용)"
 }
 
 output "admin_username" {
