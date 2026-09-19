@@ -214,3 +214,15 @@ variable "external_dns_chart_version" {
   type    = string
   default = "1.15.0"
 }
+
+variable "enable_read_replica" {
+  type        = bool
+  default     = true
+  description = <<-EOT
+    읽기 복제본을 만든다.
+
+    🔴 복제본 생성은 주 DB 백업을 유발한다.
+       그 백업 중에 재시도하면 "not in the available state" 로 거부된다.
+       막히면 false 로 내려 나머지를 먼저 돌린 뒤 켠다.
+  EOT
+}

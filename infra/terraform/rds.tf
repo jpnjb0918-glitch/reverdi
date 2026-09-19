@@ -113,8 +113,13 @@ resource "aws_db_instance" "writer" {
 #    복제본 생성이 주 DB 백업을 유발하고, 그 백업 중에는
 #    복제본을 못 만들어 실패가 반복됐다.
 #    나머지를 끝낸 뒤 count = 0 줄을 지워 되살린다.
+# 🔴 count 로 켜고 끈다 (2026-09-19)
+#    복제본 생성이 주 DB 백업을 유발하고, 그 백업 중에는
+#    복제본을 못 만들어 실패가 반복됐다.
+#    문제가 생기면 0 으로 내려 나머지를 먼저 돌릴 수 있다.
 resource "aws_db_instance" "reader" {
-  count = 0
+  count = var.enable_read_replica ? 1 : 0
+
 
   identifier = "${var.name}-db-ro"
 
