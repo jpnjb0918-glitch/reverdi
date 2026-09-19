@@ -68,6 +68,16 @@ resource "aws_db_parameter_group" "rds" {
   parameter {
     name  = "rds.force_ssl"
     value = "1"
+
+    # 🔴 pending-reboot 을 명시한다 (2026-09-19)
+    #
+    #    rds.force_ssl 은 정적 파라미터다. 빼놓으면 Terraform 이
+    #    기본값 immediate 를 보내는데, AWS 는 pending-reboot 으로 저장한다.
+    #    그러면 plan 때마다 "다르다"고 나오고, 파라미터 그룹이 바뀌면서
+    #    읽기 복제본이 교체 대상이 된다 → 삭제 → 재생성 실패 → 반복.
+    #
+    #    오늘 이 순환에 1시간 넘게 갇혔다.
+    apply_method = "pending-reboot"
   }
 
   tags = var.tags
@@ -127,6 +137,15 @@ resource "aws_db_instance" "reader" {
   instance_class = var.db_instance_class
 
   replicate_source_db = aws_db_instance.writer.identifier
+
+  # 🔴 주 DB 에서 물려받는 값을 명시한다 (2026-09-19)
+  #
+  #    안 적으면 Terraform 이 "해제하라"(-> null)로 읽고,
+  #    암호화 변경은 교체가 필요하므로 복제본을 지웠다 다시 만든다.
+  #      storage_encrypted = true -> null # forces replacement
+  #
+  #    복제본은 주 DB 의 암호화 설정을 그대로 따르므로 값만 맞춰주면 된다.
+  storage_encrypted = true
 
   # 🔴 파라미터 그룹을 복제본에도 붙인다 (2026-09-16 누락 발견)
   #
