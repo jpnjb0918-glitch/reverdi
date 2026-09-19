@@ -64,18 +64,27 @@ resource "aws_acm_certificate" "alb" {
 #    resource_record_name 을 키로 쓰면 자동으로 중복이 합쳐진다.
 #    Terraform 공식 예제도 이 방식이다.
 resource "aws_route53_record" "alb_cert_validation" {
+  # 🔴 키는 domain_name 이어야 한다 (2026-09-19 수정)
+  #
+  #    for_each 의 키는 plan 시점에 알아야 한다.
+  #      domain_name           설정에서 나온다 (re-verdi.com, *.re-verdi.com) → 안다
+  #      resource_record_name  인증서를 만들어야 나온다 → 모른다
+  #
+  #    resource_record_name 으로 바꿨다가 이 오류를 만났다:
+  #      Invalid for_each argument — depends on resource attributes
+  #      that cannot be determined until apply
+  #
+  #    두 도메인이 같은 검증 레코드를 만들지만 allow_overwrite 가 처리한다.
+  #    Terraform 공식 예제도 이 방식이다.
   for_each = local.dns_enabled ? {
     for o in aws_acm_certificate.alb[0].domain_validation_options :
-    o.resource_record_name => {
-      type   = o.resource_record_type
-      record = o.resource_record_value
-    }
+    o.domain_name => o
   } : {}
 
   zone_id = data.aws_route53_zone.main[0].zone_id
-  name    = each.key
-  type    = each.value.type
-  records = [each.value.record]
+  name    = each.value.resource_record_name
+  type    = each.value.resource_record_type
+  records = [each.value.resource_record_value]
   ttl     = 60
 
   # 재실행 시 이미 있는 레코드를 덮어쓴다.
