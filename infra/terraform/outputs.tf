@@ -54,7 +54,7 @@ output "configure_kubeconfig" {
 }
 
 output "app_url" {
-  value = var.domain != "" ? "https://${var.domain}" : "http://<ALB-DNS>"
+  value = var.domain_name != "" ? "https://${var.domain_name}" : "http://<ALB-DNS>"
 }
 
 # ---------------------------------------------------------------------------
@@ -74,4 +74,25 @@ output "sonarqube_admin_password" {
 output "sonarqube_port_forward" {
   description = "브라우저로 볼 때 쓰는 명령"
   value       = var.enable_sonarqube ? "kubectl port-forward -n infra svc/sonarqube-sonarqube 9000:9000" : "(비활성)"
+}
+
+# ===========================================================================
+# 시연용 주소
+# ===========================================================================
+
+output "app_url_https" {
+  value       = var.domain_name != "" ? "https://${var.domain_name}" : "(도메인 미설정 — ALB 주소 사용)"
+  description = "웹 앱"
+}
+
+output "grafana_url" {
+  value = var.domain_name != "" ? (
+    "https://grafana.${var.domain_name}"
+  ) : "kubectl port-forward -n monitoring svc/kps-grafana 3000:80"
+  description = "🔴 팀원이 브라우저로 여는 주소 (AWS 자격증명 불필요)"
+}
+
+output "alb_certificate_arn" {
+  value       = var.domain_name != "" ? aws_acm_certificate_validation.alb[0].certificate_arn : ""
+  description = "ALB 용 ACM 인증서. 컨트롤러가 자동 매칭하므로 보통 쓸 일이 없다."
 }

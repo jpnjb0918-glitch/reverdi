@@ -1,6 +1,6 @@
 # Reverdi AWS Terraform
 
-기존 `aws/cluster.yaml`, `aws/rds.yaml`, `aws/scripts/*.sh`의 목적을 Terraform으로 통합한 배포본입니다.
+기존 `../aws/cluster.yaml`, `../aws/rds.yaml`, `../aws/scripts/*.sh`의 목적을 Terraform으로 통합한 배포본입니다.
 
 ## 기존 설계와 대응
 
@@ -40,13 +40,13 @@ docker version
 
 - AWS 자격 증명에는 EKS/VPC/RDS/IAM/ECR/S3를 만들 권한이 필요합니다.
 - **docker, aws cli**가 로컬(terraform apply를 실행하는 머신)에 설치되어 있고 docker daemon이 켜져 있어야 합니다. `docker-build.tf`가 이 둘을 이용해 이미지를 직접 빌드/푸시합니다.
-- CloudDX **애플리케이션 소스**(`dockerfile.backend`, `dockerfile.crawler`, `pyproject.toml`, `uv.lock`, `alembic/`, `app/`, `web/`가 있는 폴더)가 필요합니다. 기본 설정은 이 저장소(`reverdi-terraform`)와 소스 저장소(`CloudeDX-main`)가 같은 부모 폴더 아래 나란히 있다고 가정합니다.
+- CloudDX **애플리케이션 소스**(`dockerfile.backend`, `dockerfile.crawler`, `pyproject.toml`, `uv.lock`, `alembic/`, `app/`, `web/`가 있는 폴더)가 필요합니다. 기본 설정은 이 저장소(`reverdi-main`)와 소스 저장소(`CloudeDX-main`)가 같은 부모 폴더 아래 나란히 있다고 가정합니다.
 
 ```text
 workspace/
   CloudeDX-main/          <- 앱 소스 zip을 여기에 압축 해제
-  reverdi-terraform/
-    terraform/             <- 여기서 terraform apply 실행
+  reverdi-main/
+    infra/terraform/      <- 여기서 terraform apply 실행
     charts/
     helm-values/
     ...
@@ -57,7 +57,7 @@ workspace/
 ## 1. terraform apply 한 번으로 전체 배포
 
 ```powershell
-cd reverdi-terraform\terraform
+cd reverdi-main\infra\terraform
 copy terraform.tfvars.example terraform.tfvars
 terraform init
 terraform apply
@@ -201,5 +201,56 @@ ap-northeast-2
       region         = "ap-northeast-2"
       dynamodb_table = "reverdi-tflock"
       encrypt        = true
-    } 
+    }
 
+---
+
+## ⚠️ Helm 차트 버전을 고정하지 않은 것들
+
+| 차트 | 버전 |
+|---|---|
+| loki · promtail · external-dns | ✅ 변수로 고정 |
+| **alb-controller · metrics-server** | ❌ 최신 |
+| **argo-cd · kube-prometheus-stack** | ❌ 최신 |
+| **jenkins · sonarqube** | ❌ 최신 |
+
+### 무엇이 문제인가
+
+`apply` 하는 날에 따라 **다른 버전**이 깔립니다.
+차트가 바뀌면 values 키 이름이 달라져 실패할 수 있습니다.
+
+실제로 SonarQube 에서 겪었습니다.
+
+```
+Error: Planned version is different from configured version
+The version in the configuration is "10.7.0" but the planned version is "10.7.0+3598"
+```
+
+### 고정하려면
+
+```bash
+helm repo add argo https://argoproj.github.io/argo-helm
+helm search repo argo/argo-cd --versions | head -3
+```
+
+나온 버전을 변수로 만들어 넣습니다.
+
+```hcl
+variable "argocd_chart_version" {
+  default = "<위에서 확인한 값>"
+}
+```
+
+```hcl
+resource "helm_release" "argocd" {
+  version = var.argocd_chart_version
+}
+```
+
+### 지금 고정하지 않은 이유
+
+**실제 버전을 확인하지 않고 숫자를 넣으면** apply 가 바로 실패합니다.
+`helm search repo` 로 확인한 뒤 넣는 것이 안전합니다.
+
+시연 기간이 3주라 그 사이에 차트가 바뀔 확률은 낮지만,
+**재현 가능한 배포가 필요하면 고정하는 것이 맞습니다.**

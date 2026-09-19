@@ -1,18 +1,44 @@
+# ---------------------------------------------------------------------------
+# 🔴 exec 인증을 쓴다 (2026-09-16 수정)
+#
+#    전에는 data.aws_eks_cluster_auth 의 token 을 썼다.
+#    그 토큰은 15분 만에 만료된다.
+#
+#    이 프로젝트의 apply 는 1.5시간이 걸린다.
+#      VPC·EKS 20분 → RDS 20분 → 이미지 빌드 20~35분 → Helm 15분
+#
+#    토큰을 apply 시작 시점에 한 번 받으면, 뒤쪽 helm_release 차례에는
+#    이미 만료돼 있다:
+#      Error: Unauthorized
+#      Error: the server has asked for the client to provide credentials
+#
+#    exec 는 필요할 때마다 aws CLI 로 새 토큰을 받는다.
+#
+#    ⚠️ aws CLI 가 PATH 에 있어야 한다.
+#       docker-build.tf 가 ECR 로그인에 이미 쓰므로 어차피 필요하다.
+# ---------------------------------------------------------------------------
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-  token                  = data.aws_eks_cluster_auth.this.token
-}
 
-data "aws_eks_cluster_auth" "this" {
-  name = module.eks.cluster_name
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.region]
+  }
 }
 
 provider "helm" {
   kubernetes = {
     host                   = module.eks.cluster_endpoint
     cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-    token                  = data.aws_eks_cluster_auth.this.token
+
+    # 위와 같은 이유로 exec 를 쓴다
+    exec = {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.region]
+    }
   }
 }
 
@@ -203,10 +229,12 @@ locals {
 
     bucket             = aws_s3_bucket.uploads.bucket
     region              = var.region
-    domain             = var.domain
-    certificate_arn    = var.acm_certificate_arn
-    cookie_secure      = var.acm_certificate_arn != ""
-    https_enabled      = var.acm_certificate_arn != "" && var.domain != ""
+    # 🔴 dns.tf 가 발급한 인증서를 직접 참조한다.
+    #    ARN 을 손으로 복사해 넣는 단계가 없다.
+    domain             = var.domain_name
+    certificate_arn    = local.dns_enabled ? aws_acm_certificate_validation.alb[0].certificate_arn : ""
+    cookie_secure      = local.dns_enabled
+    https_enabled      = local.dns_enabled
   })
 }
 
@@ -216,7 +244,7 @@ resource "helm_release" "app" {
   name      = "reverdi"
   namespace = "reverdi"
 
-  chart = "${path.module}/../charts/reverdi"
+  chart = "${path.module}/../../charts/reverdi"
 
   values = [local.app_values]
 
@@ -257,8 +285,8 @@ resource "helm_release" "argocd" {
   chart      = "argo-cd"
 
   values = [
-    file("${path.module}/../helm-values/argocd.yaml"),
-    file("${path.module}/../helm-values/aws/argocd.yaml")
+    file("${path.module}/../../helm-values/argocd.yaml"),
+    file("${path.module}/../../helm-values/aws/argocd.yaml")
   ]
 
   wait    = true
@@ -294,8 +322,8 @@ resource "helm_release" "monitoring" {
   chart      = "kube-prometheus-stack"
 
   values = [
-    file("${path.module}/../helm-values/kube-prometheus-stack.yaml"),
-    file("${path.module}/../helm-values/aws/kube-prometheus-stack.yaml")
+    file("${path.module}/../../helm-values/kube-prometheus-stack.yaml"),
+    file("${path.module}/../../helm-values/aws/kube-prometheus-stack.yaml")
   ]
 
   wait    = true
@@ -317,8 +345,8 @@ resource "helm_release" "jenkins" {
   chart      = "jenkins"
 
   values = [
-    file("${path.module}/../helm-values/jenkins.yaml"),
-    file("${path.module}/../helm-values/aws/jenkins.yaml")
+    file("${path.module}/../../helm-values/jenkins.yaml"),
+    file("${path.module}/../../helm-values/aws/jenkins.yaml")
   ]
 
   wait    = true
@@ -326,6 +354,9 @@ resource "helm_release" "jenkins" {
 
   depends_on = [
     kubernetes_namespace_v1.infra,
-    kubernetes_storage_class_v1.gp3
+    kubernetes_storage_class_v1.gp3,
+    # 🔴 빌드 에이전트가 쓸 SA 가 먼저 있어야 한다.
+    #    없으면 첫 빌드에서 "serviceaccount not found" 로 파드가 안 뜬다.
+    kubernetes_service_account_v1.jenkins_ecr,
   ]
 }

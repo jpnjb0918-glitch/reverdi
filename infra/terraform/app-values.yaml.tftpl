@@ -85,8 +85,31 @@ ingress:
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
+    # 🔴 ALB 를 하나만 만든다.
+    #    같은 group.name 을 쓰는 Ingress 들이 ALB 를 나눠 쓴다.
+    #    앱과 Grafana 가 각자 만들면 월 $16 이 더 든다.
+    alb.ingress.kubernetes.io/group.name: reverdi
+    alb.ingress.kubernetes.io/group.order: "10"
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/listen-ports: '${https_enabled ? "[{\"HTTP\":80},{\"HTTPS\":443}]" : "[{\"HTTP\":80}]"}'
 %{ if https_enabled }    alb.ingress.kubernetes.io/ssl-redirect: "443"%{ endif }
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
     alb.ingress.kubernetes.io/load-balancer-attributes: routing.http.xff_header_processing.mode=replace
+
+# ---------------------------------------------------------------------------
+# 🔴 Prometheus 수집 설정
+#
+#    앱은 prometheus-fastapi-instrumentator 로 /metrics 를 내보낸다.
+#    ServiceMonitor 가 있어야 Prometheus 가 그걸 긁어간다.
+#    없으면 요청 수·p95·에러율 대시보드가 빈 화면이 된다.
+#
+#    ⚠️ kube-prometheus-stack 의 CRD 가 있을 때만 만들어진다.
+#       로컬 초기 구축처럼 CRD 가 없으면 조용히 건너뛴다.
+# ---------------------------------------------------------------------------
+metrics:
+  serviceMonitor:
+    enabled: true
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}

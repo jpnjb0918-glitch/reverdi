@@ -82,8 +82,8 @@ variable "build_images" {
 
 variable "app_source_path" {
   type        = string
-  default     = "../../CloudeDX-main"
-  description = "dockerfile.backend / dockerfile.crawler / pyproject.toml / uv.lock / alembic / app / web 이 들어있는 CloudDX 소스 루트 경로. terraform/ 디렉터리 기준 상대경로 또는 절대경로."
+  default     = "../../../CloudeDX-main"
+  description = "dockerfile.backend / dockerfile.crawler / pyproject.toml / uv.lock / alembic / app / web 이 들어있는 CloudDX 소스 루트 경로. infra/terraform/ 디렉터리 기준 상대경로 또는 절대경로."
 }
 
 variable "build_platform" {
@@ -107,15 +107,17 @@ variable "deploy_jenkins" {
   default = true
 }
 
-variable "domain" {
-  type    = string
-  default = ""
-}
-
-variable "acm_certificate_arn" {
-  type    = string
-  default = ""
-}
+# 🔴 var.domain / var.acm_certificate_arn 을 없앴다 (2026-09-16)
+#
+#    도메인 변수가 둘로 갈려 있었다.
+#      var.domain              app-values.yaml.tftpl 이 쓰던 것
+#      var.domain_name         dns.tf 가 쓰는 것
+#
+#    tfvars 에 domain_name 만 적으면 var.domain 이 빈 값이라
+#    Ingress host 가 비고 HTTPS 가 안 열렸다.
+#
+#    이제 domain_name 하나로 통일한다.
+#    인증서 ARN 도 dns.tf 가 만든 것을 kubernetes.tf 가 직접 참조한다.
 
 variable "db_instance_class" {
   type    = string
@@ -158,4 +160,57 @@ variable "sonarqube_admin_password" {
   default   = ""
   sensitive = true
   description = "비우면 랜덤 생성한다. terraform output 으로 확인한다."
+}
+
+variable "enable_logging" {
+  description = "Enable Loki logging resources"
+  type        = bool
+  default     = true
+}
+
+variable "log_retention_days" {
+  description = "Number of days to retain Loki logs in S3"
+  type        = number
+  default     = 30
+}
+
+variable "loki_chart_version" {
+  description = "Loki Helm chart version"
+  type        = string
+  default     = "6.29.0"
+}
+
+variable "promtail_chart_version" {
+  description = "Promtail Helm chart version"
+  type        = string
+  default     = "6.16.6"
+}
+
+# ===========================================================================
+# 도메인 — re-verdi.com (Route 53 에서 구매)
+# ===========================================================================
+
+variable "domain_name" {
+  type    = string
+  default = ""
+  description = <<-EOT
+    비우면 ACM 인증서·DNS 레코드를 만들지 않고 ALB 주소로 HTTP 접속한다.
+    terraform.tfvars 에서 채운다.
+  EOT
+}
+
+variable "enable_external_dns" {
+  type    = bool
+  default = true
+  description = <<-EOT
+    Ingress 의 host 를 보고 Route 53 A 레코드를 자동으로 만든다.
+
+    🔴 없으면 ALB 주소를 손으로 확인해 콘솔에서 레코드를 만들어야 한다.
+       ALB 는 apply 시점에 주소를 알 수 없어 Terraform 이 못 만든다.
+  EOT
+}
+
+variable "external_dns_chart_version" {
+  type    = string
+  default = "1.15.0"
 }

@@ -4,14 +4,14 @@ region = "ap-northeast-2"
 kubernetes_version = "1.33"
 
 # CloudDX 소스 루트(dockerfile.backend/.crawler가 있는 폴더) 경로.
-# 기본값은 이 terraform/ 디렉터리 기준 "../../CloudeDX-main" 이다.
+# 기본값은 이 infra/terraform/ 디렉터리 기준 "../../../CloudeDX-main" 이다.
 # 즉 아래처럼 두 저장소를 나란히 풀어두면 그대로 동작한다.
 #   workspace/
 #     CloudeDX-main/         <- 소스 zip을 여기에 압축 해제
-#     reverdi-terraform/
-#       terraform/            <- 여기서 terraform apply 실행
+#     reverdi-main/
+#       infra/terraform/     <- 여기서 terraform apply 실행
 # 경로가 다르면 여기서 덮어쓴다.
-# app_source_path = "../../CloudeDX-main"
+# app_source_path = "../../../CloudeDX-main"
 
 # true(기본값)면 terraform apply 한 번으로
 #   ECR 생성 -> docker build/push -> helm 배포 까지 전부 수행한다.
@@ -49,3 +49,10 @@ db_allocated_storage  = 20
 # infra 노드 — SonarQube 를 켜면 t3.large 가 필요하다
 # infra_instance_type = "t3.large"
 # infra_node_count    = 2
+
+# ---------------------------------------------------------------------------
+# 도메인 — Route 53 에서 먼저 구매한다 (.com 연 $14)
+#   비우면 ALB 주소로 HTTP 접속한다.
+# ---------------------------------------------------------------------------
+# domain_name         = "re-verdi.com"
+# enable_external_dns = true
