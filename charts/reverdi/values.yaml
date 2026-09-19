@@ -460,3 +460,21 @@ migrate:
 # ---------------------------------------------------------------------------
 serviceAccountName: ""
 batchServiceAccountName: ""
+
+# ---------------------------------------------------------------------------
+# 🔴 Prometheus 수집 설정
+#
+#    앱은 prometheus-fastapi-instrumentator 로 /metrics 를 내보낸다.
+#    ServiceMonitor 가 있어야 Prometheus 가 그걸 긁어간다.
+#    없으면 요청 수·p95·에러율 대시보드가 빈 화면이 된다.
+#
+#    ⚠️ kube-prometheus-stack 의 CRD 가 있을 때만 만들어진다.
+#       로컬 초기 구축처럼 CRD 가 없으면 조용히 건너뛴다.
+# ---------------------------------------------------------------------------
+metrics:
+  serviceMonitor:
+    enabled: true
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
