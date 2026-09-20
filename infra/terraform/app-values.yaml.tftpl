@@ -53,6 +53,13 @@ config:
   TRUST_PROXY_HEADERS: "true"
   DATABASE_SSL_MODE: "require"
 
+  # 🔴 시연용 판매자 계정 연결 (2026-09-20)
+  #    client 계정이 이 id 의 판매자로 동작한다.
+  #    0 이면 CSV 업로드가 거부된다.
+  #    ⚠️ sellers 에 시드가 없어 손으로 넣었다. 재구축 시 확인:
+  #         select id, name from sellers;
+  CLIENT_SELLER_ID: "2"
+
 secret:
   create: false
   name: reverdi-secret
