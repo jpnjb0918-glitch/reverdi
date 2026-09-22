@@ -1,6 +1,6 @@
 # Terraform 이관 — 문제 해결 기록
 
-> eksctl + CloudFormation 으로 만들던 AWS 인프라를 **Terraform 으로 옮기면서 겪은 15건**
+> eksctl + CloudFormation 으로 만들던 AWS 인프라를 **Terraform 으로 옮기고 운영하면서 겪은 20건**
 > 2026-09-19 · 약 9시간 · 리소스 146개
 
 대부분은 **"eksctl 이 알아서 해주던 것을 직접 해야 했다"** 로 요약된다.
@@ -13,8 +13,8 @@
 |---|:--:|---|
 | **Terraform 의 구조적 제약** | 3 | 프로바이더 순환 · 리소스 주소 변경 · import 불가 |
 | **eksctl 과의 차이** | 4 | CNI 순서 · 보안그룹 분리 · 애드온 충돌 · 기존 리소스 |
-| **설정 누락** | 4 | `apply_method` · `storage_encrypted` · ALB xff · SonarQube edition |
-| **운영 중 발견** | 4 | ALB 그룹 충돌 · helm upgrade · DNS 캐시 · 커널 파라미터 |
+| **설정 누락** | 6 | `apply_method` · `storage_encrypted` · ALB xff · SonarQube edition · 판매자 id · S3 공개 범위 |
+| **운영 중 발견** | 7 | ALB 그룹 충돌 · helm upgrade · DNS 캐시 · 커널 파라미터 · NTFS 손상 · CSV 예시 주소 · 이미지 미반영 |
 
 ### 가장 오래 걸린 3건
 
@@ -696,6 +696,250 @@ No changes. Your infrastructure matches the configuration.
   ```
 - 14번과 같은 함정이다 — **안 적으면 "해제하라"로 읽힌다**
 - 두 개를 고치자 순환이 끝났다
+
+---
+
+## 16. 🔴 판매자 CSV 업로드가 거부된다
+
+### 증상
+
+`client` 계정으로 로그인해 판매자 화면에서 CSV 를 올렸더니 거부됐다.
+
+```
+CLIENT_SELLER_ID를 실제 sellers.id로 설정해 주세요.
+```
+
+로그인은 정상이었고 업로드만 막혔다.
+
+### 원인
+
+```
+sellers: 비어 있음
+CLIENT_SELLER_ID: "0"
+```
+
+앱은 `client` 계정을 `CLIENT_SELLER_ID` 번 판매자로 취급한다. 새로 만든 RDS 에는 **판매자 행이 하나도 없었고**, 값도 기본값 `0` 이었다.
+
+### 해결
+
+```sql
+insert into sellers (name, business_number, ...) values ('리버디 스토어', '000-00-00000', ...) returning id;
+-- 생성된 id: 2   (앞선 실패 시도가 시퀀스를 하나 먹었다)
+```
+
+```yaml
+# app-values.yaml.tftpl
+CLIENT_SELLER_ID: "2"
+```
+
+**리빌드는 필요 없었다.** `app/config.py` 가 런타임에 읽는 환경변수라, 값만 바꿔 롤링 업데이트하면 된다.
+
+### 배운 것
+
+- 처음 `business_number` 를 빼고 넣었다가 NOT NULL 로 실패했다 — **컬럼 목록부터 조회**했어야 했다
+- 🔴 시드 데이터가 없어 **재구축하면 다시 손으로 넣어야 한다.** id 도 달라질 수 있다
+
+---
+
+## 17. 🔴 작업 디스크가 깨졌다 — NTFS 에서 git · terraform
+
+### 증상
+
+`CLIENT_SELLER_ID` 를 반영하려고 `terraform apply -target=helm_release.app` 을 돌렸더니 Terraform 이 폴더를 못 읽었다.
+
+```
+Error: Failed to read module directory
+  Module directory . does not exist or cannot be read.
+```
+
+`git status` 도 실패했고, `.git/HEAD` 를 열자 입출력 오류가 났다.
+
+```
+fatal: 깃 저장소가 아닙니다
+-????????? ? ?  ?  ?  HEAD
+cat: .git/HEAD: Input/output error
+```
+
+### 원인
+
+```
+/dev/sdb1 on /mnt/data2 type fuseblk
+```
+
+작업 폴더가 **Windows 와 공유하는 NTFS 파티션**이었다. `ntfsfix` 로도 복구되지 않았다.
+
+### 해결 — 상태 파일부터 구했다
+
+```bash
+cp .../terraform.tfstate ~/tfstate-backup-0921-0740.json   # 737KB
+```
+
+**GitHub 에 없는 건 상태 파일 하나뿐**이었다. 이걸 먼저 빼낸 뒤 ext4(메인 SSD)에 새로 clone 하고 되돌렸다.
+
+```bash
+git clone -b terraform ... ~/reverdi
+cp ~/tfstate-backup-*.json ~/reverdi/infra/terraform/terraform.tfstate
+terraform init        # 프로바이더는 옛 폴더에서 복사 — 테더링으로 700MB 받다 끊겼다
+terraform plan        # No changes
+```
+
+### 배운 것
+
+- 🔴 **개발 작업은 리눅스 파일시스템(ext4)에서.** 공유는 디스크가 아니라 GitHub 로 한다
+- 로컬 상태 파일은 **단일 장애점**이다. 원격 백엔드(S3 + 잠금)로 옮길 이유가 생겼다
+
+---
+
+## 18. 🔴 판매자 화면 사진이 전부 깨진다
+
+### 증상
+
+판매자 화면에서 CSV 로 매물을 등록했더니 목록의 사진이 전부 깨진 아이콘으로 나왔다. 깨진 사진 주소를 새 탭에서 열면 S3 가 거부한다.
+
+```
+AccessDenied — 403
+```
+
+"DB 가 S3 에서 이미지를 불러올 권한이 없다" 는 설명을 들었다.
+
+### 원인 — DB 도 파드도 아니고 브라우저
+
+| 단계 | 누가 | 결과 |
+|---|---|---|
+| 사진을 S3 에 저장 | 앱 파드 (IRSA) | ✅ |
+| DB 에 주소 저장 | 앱 | `https://reverdi-uploads-….s3.ap-northeast-2.amazonaws.com/2026/09/….jpg` |
+| 그 주소로 사진 요청 | **사용자 브라우저 (익명)** | 🔴 403 |
+
+```hcl
+# storage.tf
+block_public_policy     = true
+restrict_public_buckets = true
+# 버킷 정책 없음 · CloudFront 없음
+```
+
+**IRSA 는 파드에만 권한을 준다.** 앱이 버킷 주소를 그대로 화면에 내려주는 구조(`S3_PUBLIC_BASE` 비어 있음)라, 비공개 버킷이면 브라우저는 읽을 수 없다.
+
+### 🔴 버킷 전체를 열면 안 됐다
+
+같은 버킷의 `backup/` 에 **DB 덤프(pg_dump)** 가 저장된다. 사진 키는 `연/월/난수` 형식이라 **`20*` 만** 열었다.
+
+```json
+{
+  "Sid": "PublicReadProductImages",
+  "Effect": "Allow",
+  "Principal": "*",
+  "Action": "s3:GetObject",
+  "Resource": "arn:aws:s3:::reverdi-uploads-611669940814/20*"
+}
+```
+
+```bash
+aws s3api put-public-access-block ... BlockPublicPolicy=false,RestrictPublicBuckets=false
+aws s3api put-bucket-policy ... --policy file://policy.json
+```
+
+> 학원 컴에서 AWS CLI 로 적용했다. 상태 파일이 집에만 있어 Terraform 을 돌릴 수 없었다.
+
+### 배운 것
+
+- "권한이 없다" 를 들으면 **누구의 권한인지**부터 묻는다 — 파드 · DB · 브라우저는 서로 다른 주체다
+- 공개 범위는 **키 접두어로 좁힌다.** 한 버킷에 성격이 다른 데이터가 섞여 있으면 특히
+- 정석은 CloudFront(OAC) — 버킷은 비공개로 두고 CDN 만 읽게 한다
+
+---
+
+## 19. 사진 하나만 뜨고 나머지는 여전히 깨진다
+
+### 증상
+
+18번의 버킷 정책을 적용하고 새로고침했더니 **"사진 교체" 로 올린 매물 하나만** 사진이 떴다. 나머지의 사진 주소를 복사해 보니 이랬다.
+
+```
+https://example.com/images/chanel-card-wallet.jpg
+```
+
+### 원인 — 인프라가 아니라 데이터
+
+| 파일 | 확인한 것 |
+|---|---|
+| `app/domain/csv_import.py` | CSV 의 이미지 주소를 **받은 그대로 DB 에 저장** (S3 로 복사하지 않음) |
+| `web/js/client.js` | CSV 예시 양식에 `example.com` 주소 |
+
+`example.com` 은 예시용 도메인이라 실제 이미지가 없다.
+
+### 해결
+
+깨진 매물은 **"사진 교체" 로 다시 올린다.** 시연은 "CSV 로 매물 등록 → 사진은 따로 업로드 → S3 에 저장돼 바로 보임" 흐름으로 한다.
+
+### 배운 것
+
+- 18번을 고친 뒤 **되는 것 하나 · 안 되는 것 하나의 주소를 비교**해서 층을 갈랐다
+- 백엔드 개선 제안: CSV 의 외부 이미지를 등록 시 S3 로 복사해 오면 원본이 사라져도 유지된다
+
+---
+
+## 20. 🔴 HTML 을 고쳤는데 사이트가 안 바뀐다
+
+### 증상
+
+팀원이 HTML 을 고쳐 GitHub 에 올렸는데, re-verdi.com 을 새로고침해도 화면이 그대로였다. 도는 이미지 태그를 확인했더니 첫 배포 때 값이었다.
+
+### 원인
+
+```
+지금 이미지   reverdi-backend:git-e14db5059046   ← 첫 배포 그대로
+GitHub 최신   71d55919607a
+```
+
+HTML 은 **도커 이미지 안에 들어 있다.** 그리고 AWS 이미지는 Terraform 이 **집 우분투의 `~/CloudeDX`** 로 빌드한다. GitHub 에 올리는 것만으로는 아무것도 바뀌지 않는다.
+
+### 해결 — 학원 컴에서 수동 배포
+
+마이그레이션이 필요한지부터 확인했다. `kubectl set image` 는 마이그레이션 Job 을 돌리지 않기 때문이다.
+
+```powershell
+# 지금 DB 리비전 c4a71f2e8b90 을 잇는 마이그레이션이 있는가
+Select-String -Path alembic\versions\*.py -Pattern "down_revision.*c4a71f2e8b90"   # 없음
+Select-String -Path alembic\versions\*.py -Pattern "^revision.*c4a71f2e8b90"      # 기준 파일 존재
+```
+
+```powershell
+docker build --platform linux/amd64 -f dockerfile.backend -t <ECR>/reverdi-backend:git-71d5591 .
+docker push <ECR>/reverdi-backend:git-71d5591
+kubectl set image deployment/reverdi-web -n reverdi web=<ECR>/reverdi-backend:git-71d5591
+kubectl rollout status deployment/reverdi-web -n reverdi
+```
+
+롤링 업데이트라 서비스는 끊기지 않았다. 되돌리기는 `kubectl rollout undo`.
+
+### 도중에 걸린 것
+
+| | |
+|---|---|
+| `kubectl` 이 `localhost:8080` 으로 붙음 | 학원 컴에 kubeconfig 없음 → `aws eks update-kubeconfig` |
+| 학원 폴더 소스가 옛 커밋(`9af5e14`) | `git pull` 후 마이그레이션을 **다시** 확인 |
+| `docker version` 에 Server 없음 | Docker Desktop 이 꺼져 있었음 |
+
+### 배운 것
+
+- 🔴 **"코드를 올렸다" 와 "배포됐다" 는 다르다.** 도는 이미지 태그로 확인한다
+  ```bash
+  kubectl get deploy reverdi-web -n reverdi -o jsonpath='{..image}'
+  ```
+- 수동 배포 전에 **스키마 변경 여부**부터 본다
+- CI 가 AWS 에 연결되지 않아 사람이 빌드한다 — **Jenkins → ECR → Argo CD 경로를 AWS 에도 이어야** 한다
+
+---
+
+## ⚠️ 코드에 아직 반영 안 된 것
+
+| 항목 | 지금 | 할 일 (집 우분투) |
+|---|---|---|
+| 사진 공개 정책 | AWS CLI 로만 적용 | `storage.tf` 에 공개 차단 수정 + 버킷 정책 추가 |
+| 웹 이미지 `git-71d5591` | `kubectl set image` 로만 적용 | `cd ~/CloudeDX && git pull` 후 `terraform apply` |
+| 판매자 시드 | 손으로 INSERT | 마이그레이션 · 시드 스크립트로 |
+
+🔴 **집에서 `git pull` 없이 `terraform apply` 하면 옛 HTML 로 되돌아가고, 사진도 다시 잠긴다.**
 
 ---
 
